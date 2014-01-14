@@ -1,0 +1,80 @@
+A very simple (and incomplete!) implementation of scep protocol for nodejs.
+
+The function that responds to requests must be something like this:
+
+var node_scep = require('scep');
+/*
+ With the GET method, the message part is either plain text, or Distinguished Encoding Rules (DER)-encoded PKCS#7 converted to Base64.
+ If the POST method is supported, content that would be sent in Base64 encoding with GET might be sent in binary format with POST instead.
+ */
+
+function pkiclient(req, res){
+    var operation = req.query && req.query.operation;
+    tlog('pkiclient op=' + operation);
+    /*
+     operation = GetCACert, GetNextCACert, or (optional) GetCACaps:
+     message can be omitted, or can be set to a name that identifies the CA.
+     */
+
+    /*
+     { operation: 'GetCACert',
+     message: 'EnrollmentCAInstance' }
+     */
+    switch(operation){
+        case 'GetCACert':
+            var crt = ...;// the certificate.pem in der format
+            res.setHeader('Content-Type', 'application/x-x509-ca-cert');
+            res.setHeader('Content-Length', crt.length);
+            res.send(crt);
+            break;
+    /*
+     { operation: 'GetCACaps',
+     message: 'EnrollmentCAInstance' }
+     */
+
+    /*
+    { operation: 'PKIOperation',
+        message: 'MIAG...AAAAAAA=' }
+    */
+    /*
+     message is a SCEP pkiMessage structure, based on PKCS#7 and encoded with DER and Base64.
+     the pkiMessage structure can be of these types:
+     PKCSReq: PKCS#10 CSR
+     GetCertInitial: polling for CSR granting status
+     GetCert or GetCRL: certificate or CRL retrieval
+     */
+        case 'PKIOperation':
+            var p7sign = new Buffer(req.query.message, 'base64');
+            var input = {
+                req  : p7sign,
+                cert : '/path/of/certificate.pem',
+                key  : '/path/of/key.pem'
+            };
+
+            var csr = node_scep.extract_csr(input);
+            var opt = {
+                csr  : csr,
+                days : 365,
+                caCert : input.cert,
+                caKey : input.key,
+                outform : 'der'
+            };
+            //this function call the line command:
+            //openssl x509 -req -days 365 -in input.csr -CA cert.pem -CAkey key.pem -CAcreateserial -out out.der -outform der
+            openssl.generateCrt(opt, function(err, crt){
+                if(err){
+                    log(err);
+                    return res.send(500);
+                }
+                input.crt = crt;//this is a buffer
+                var pkcs7 = node_scep.encode_res(input);
+                res.setHeader('Content-Type', 'application/x-pki-message');
+                res.setHeader('Content-Length', pkcs7.length);
+                res.send(pkcs7);
+            });
+            break;
+        default:
+            res.send(200);
+    }
+}
+

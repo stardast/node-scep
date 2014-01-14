@@ -1,0 +1,35 @@
+{
+  "name": "scep",
+  "version": "0.0.1",
+  "description": "Node.js SCEP (Simple Certificate Enrollment Protocol) module",
+  "main": "scep.js",
+  "private": false,
+  "gypfile": true,
+  "scripts": {
+    "install": "node-gyp rebuild"
+  },
+  "dist": {
+    "shasum": "a122d8fb781360fcce6e8d32a88d5b48c060d6e0"
+  },
+  "dependencies": {
+    "bindings": "1.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stardast/node-scep.git"
+  },
+  "keywords": [
+    "nodejs",
+    "scep",
+    "simple",
+    "certificate",
+    "enrollment",
+    "protocol"
+  ],
+  "author": "Paolo Dastoli",
+  "license": "LGPL 2.1",
+  "bugs": {
+    "url": "https://github.com/stardast/node-scep/issues"
+  },
+  "homepage": "https://github.com/stardast/node-scep"
+}
