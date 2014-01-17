@@ -11,7 +11,7 @@ using namespace v8;
 
 int (*extract_csr)(unsigned char* p7_buf, size_t p7_len, char *cert, char *key,  char **data, size_t &length);
 int (*encode_res)(unsigned char* cert_buf, size_t cert_len, unsigned char* p7_buf, size_t p7_len, char *cert, char *key, char **data, size_t &length );
-int (*verify)(unsigned char* p7_buf, size_t p7_len, char **data, size_t &length );
+int (*verify)(unsigned char* p7_buf, size_t p7_len, unsigned char* crt_buf, size_t crt_len, unsigned char* in_buf, size_t in_len, char **data, size_t &length );
 
 Handle<Value> Extract_CSR(const Arguments& args) {
     HandleScope scope;
@@ -94,21 +94,44 @@ Handle<Value> Verify_Response(const Arguments& args) {
       ThrowException(Exception::TypeError(String::New("Args[0] must be a buffer")));
       return scope.Close(Undefined());
     }
+    Local<Object> pkcs7 = a->ToObject();
+    unsigned char* p7_buf = (unsigned char*) node::Buffer::Data(pkcs7);
+    size_t p7_len = node::Buffer::Length(pkcs7);
 
-    Local<Object> opt = a->ToObject();
+    unsigned char* in_buf = NULL;
+    size_t in_len = 0;
 
-    unsigned char* p7_buf = (unsigned char*) node::Buffer::Data(opt);
-    size_t p7_len = node::Buffer::Length(opt);
+    unsigned char* crt_buf = NULL;
+    size_t crt_len = 0;
+
+    if (args.Length() == 3) {
+
+       Local<Value> b = args[1];
+       if(!b->IsObject() || !node::Buffer::HasInstance(b)) {
+         ThrowException(Exception::TypeError(String::New("Args[1] must be a buffer")));
+         return scope.Close(Undefined());
+       }
+       Local<Object> input = b->ToObject();
+       in_buf = (unsigned char*) node::Buffer::Data(input);
+       in_len = node::Buffer::Length(input);
+   
+       Local<Value> c = args[2];
+       if(!c->IsObject() || !node::Buffer::HasInstance(c)) {
+         ThrowException(Exception::TypeError(String::New("Args[2] must be a buffer")));
+         return scope.Close(Undefined());
+       }
+       Local<Object> cert = c->ToObject();
+       crt_buf = (unsigned char*) node::Buffer::Data(cert);
+       crt_len = node::Buffer::Length(cert);
+    }
 
     char *data = NULL;
     size_t length = 0;
-    verify(p7_buf, p7_len, &data, length);
-
-    Local<Object> obj = Object::New();
-//    obj->Set(String::NewSymbol("name"), String::New(X509_NAME_oneline(name, NULL, 0)));
-
-    obj->Set(String::NewSymbol("out"), node::Buffer::New(data, length)->handle_);
-    return scope.Close(obj);
+    
+    if(verify(p7_buf, p7_len, crt_buf, crt_len, in_buf, in_len, &data, length))
+       return scope.Close(node::Buffer::New(data, length)->handle_);
+    else
+       return scope.Close(Undefined());
 }
 
 #ifndef RTLD_DEEPBIND
@@ -146,7 +169,7 @@ Handle<Value> DlOpen(const Arguments& args) {
    }
    init();
    
-   verify = (int(*)(unsigned char* p7_buf, size_t p7_len, char **data, size_t &length)) dlsym(handle, n_v.c_str());
+   verify = (int(*)(unsigned char* p7_buf, size_t p7_len, unsigned char* crt_buf, size_t crt_len, unsigned char* in_buf, size_t in_len, char **data, size_t &length)) dlsym(handle, n_v.c_str());
    extract_csr = (int(*)(unsigned char* p7_buf, size_t p7_len, char *cert, char *key,  char **data, size_t &length)) dlsym(handle, n_ex.c_str());
    encode_res = (int(*)(unsigned char* cert_buf, size_t cert_len, unsigned char* p7_buf, size_t p7_len, char *cert, char *key, char **data, size_t &length )) dlsym(handle, n_en.c_str());
 

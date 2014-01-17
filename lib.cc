@@ -8,7 +8,7 @@
 #include <openssl/err.h>
 
 extern void init_lib(void) asm("_init_lib");
-extern int Verify_Response(unsigned char* p7_buf, size_t p7_len, char **data, size_t &length ) asm("_verify");
+extern int Verify_Response(unsigned char* p7_buf, size_t p7_len, unsigned char* crt_buf, size_t crt_len, unsigned char* in_buf, size_t in_len, char **data, size_t &length ) asm("_verify");
 extern int Extract_CSR(unsigned char* p7_buf, size_t p7_len, char *cert, char *key,  char **data, size_t &length) asm("_extract_csr");
 extern int Encode_Res(unsigned char* crt_buf, size_t crt_len, unsigned char* p7_buf, size_t p7_len, char *cert, char *key,  char **data, size_t &length) asm("_encode_res");
 
@@ -260,28 +260,60 @@ int Encode_Res(unsigned char* crt_buf, size_t crt_len, unsigned char* p7_buf, si
 }
 
 
-int Verify_Response(unsigned char* p7_buf, size_t p7_len, char **data, size_t &length ) {
+int Verify_Response(unsigned char* p7_buf, size_t p7_len, unsigned char* crt_buf, size_t crt_len, unsigned char* in_buf, size_t in_len, char **data, size_t &length ) {
 
-    BIO *in = BIO_new_mem_buf(p7_buf, p7_len);
-    if (!in) {
+    BIO *in = NULL;
+    if(in_buf && in_len) in = BIO_new_mem_buf(in_buf, in_len);
+
+    X509 *x509in = NULL;
+    if(crt_buf && crt_len) { 
+       BIO *crt_bio = BIO_new_mem_buf(crt_buf, crt_len);
+       if (!crt_bio) {
+           ERR_print_errors_fp(stderr);
+           BIO_free(in);
+           return 0;
+       }
+       x509in = PEM_read_bio_X509(crt_bio, NULL, 0, NULL);
+       if (!x509in) {
+           ERR_print_errors_fp(stderr);
+           BIO_free(in);
+           BIO_free(crt_bio);
+           return 0;
+       }
+       BIO_free(crt_bio);
+    }
+
+    BIO *p7_bio = BIO_new_mem_buf(p7_buf, p7_len);
+    if (!p7_bio) {
         ERR_print_errors_fp(stderr);
+        BIO_free(in);
+        X509_free(x509in);
         return 0;
     }
-    PKCS7 *p7sign = d2i_PKCS7_bio(in, NULL);
+    PKCS7 *p7sign = d2i_PKCS7_bio(p7_bio, NULL);
     if (!p7sign) {
         ERR_print_errors_fp(stderr);
         BIO_free(in);
+        X509_free(x509in);
+        BIO_free(p7_bio);
         return 0;
     }
     BIO* out_verify = BIO_new(BIO_s_mem());
     X509_STORE *store = X509_STORE_new();
-    STACK_OF(X509) *signers = PKCS7_get0_signers(p7sign, NULL, 0);
+    int flags = PKCS7_NOVERIFY | PKCS7_NOCHAIN | PKCS7_NOSIGS;
+    if(x509in){
+       X509_STORE_add_cert(store, x509in);
+       flags = 0;
+    } 
+    STACK_OF (X509) *signers = sk_X509_new_null();
 
-    int p7vercode = PKCS7_verify(p7sign, signers, store, NULL, out_verify, PKCS7_NOVERIFY | PKCS7_NOCHAIN | PKCS7_NOSIGS);
+    int p7vercode = PKCS7_verify(p7sign, signers, store, in, out_verify, flags);
     if(p7vercode!=1){
         fprintf (stderr, "PKCS7_verify ERROR: %d\n", p7vercode);
-	ERR_print_errors_fp(stderr);
         BIO_free(in);
+        X509_free(x509in);
+	ERR_print_errors_fp(stderr);
+        BIO_free(p7_bio);
         PKCS7_free(p7sign);
         X509_STORE_free(store);
         return 0;
@@ -293,6 +325,8 @@ int Verify_Response(unsigned char* p7_buf, size_t p7_len, char **data, size_t &l
     length = bptr->length;
 
     BIO_free(in);
+    X509_free(x509in);
+    BIO_free(p7_bio);
     PKCS7_free(p7sign);
     X509_STORE_free(store);
 
